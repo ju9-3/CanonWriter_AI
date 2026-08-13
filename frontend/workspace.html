@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CanonWriter - 工作台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="api.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            main: '#7A4B3A',
+            darkMain: '#D4836B',
+            pageBg: '#F7F8FA',
+            darkBg: '#1A1A1A',
+            cardDark: '#292929',
+            sidebar: '#2D2A28',
+            sidebarDark: '#1E1B19'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
+
+    /* 美化：主色渐变按钮 + 发光 */
+    .btn-glow {
+      background: linear-gradient(135deg, #7A4B3A 0%, #A0624E 100%);
+      box-shadow: 0 4px 14px rgba(122, 75, 58, 0.35);
+      transition: all 0.25s ease;
+    }
+    .btn-glow:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(122, 75, 58, 0.5);
+    }
+    .btn-glow:active { transform: translateY(0); }
+    .dark .btn-glow {
+      background: linear-gradient(135deg, #D4836B 0%, #E29B7E 100%);
+      box-shadow: 0 4px 14px rgba(212, 131, 107, 0.4);
+    }
+
+    /* 美化：Header 底部光线 */
+    .header-gradient {
+      background: linear-gradient(180deg, #ffffff 0%, #fdfbf9 100%);
+      box-shadow: 0 1px 0 rgba(122, 75, 58, 0.08), 0 2px 8px rgba(0,0,0,0.03);
+    }
+    .dark .header-gradient {
+      background: linear-gradient(180deg, #292929 0%, #232323 100%);
+    }
+
+    /* 美化：侧边栏激活项左侧指示条 */
+    .nav-item { position: relative; overflow: hidden; }
+    .nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 50%;
+      transform: translateY(-50%);
+      width: 3px; height: 60%;
+      background: linear-gradient(180deg, #7A4B3A, #A0624E);
+      border-radius: 0 3px 3px 0;
+      animation: slideIn 0.3s ease;
+    }
+    .dark .nav-item.active::before {
+      background: linear-gradient(180deg, #D4836B, #E29B7E);
+    }
+    @keyframes slideIn {
+      from { height: 0; opacity: 0; }
+      to { height: 60%; opacity: 1; }
+    }
+
+    /* 美化：卡片悬停上浮 */
+    .card-hover {
+      transition: all 0.3s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.08);
+    }
+    .dark .card-hover:hover {
+      box-shadow: 0 12px 28px rgba(0,0,0,0.4);
+    }
+
+    /* 美化：页面背景微光晕 */
+    .page-bg {
+      background: radial-gradient(circle at 20% 0%, rgba(122, 75, 58, 0.04) 0%, transparent 50%), #F7F8FA;
+    }
+    .dark .page-bg {
+      background: radial-gradient(circle at 20% 0%, rgba(212, 131, 107, 0.06) 0%, transparent 50%), #1A1A1A;
+    }
+  </style>
+</head>
+<body class="overflow-hidden">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ==================== 导航菜单项 ====================
+const MENU_ITEMS = [
+  { id: 'lore', label: '上传 (Lore库)', icon: '📂' },
+  { id: 'emotion', label: '情感曲线', icon: '📈' },
+  { id: 'timeline', label: '时间线', icon: '🗓️' },
+  { id: 'generate', label: '生成正文', icon: '✍️' }
+];
+
+// ==================== Lore库板块 ====================
+function LorePanel() {
+  const [files, setFiles] = useState([]);
+  const [chunkCount, setChunkCount] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+
+  async function loadFiles() {
+    try {
+      const d = await API.getLoreFiles();
+      setChunkCount(d.total || 0);
+      setFiles(d.files || []);
+    } catch (e) {
+      setError('加载文件列表失败');
+    }
+  }
+
+  useEffect(() => {
+    loadFiles();
+  }, []);
+
+  async function uploadFileList(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    setUploading(true);
+    setError('');
+    try {
+      const res = await API.uploadFiles(fileList);
+      setChunkCount(res.chunks || 0);
+      await loadFiles();
+    } catch (e) {
+      setError(e.message || '上传失败');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    uploadFileList(e.dataTransfer.files);
+  }
+
+  function handleSelect(e) {
+    uploadFileList(e.target.files);
+    e.target.value = '';
+  }
+
+  async function deleteFile(id) {
+    try {
+      await API.deleteLoreFile(id);
+      setFiles(files.filter(f => f.id !== id));
+    } catch (e) {
+      setError(e.message || '删除失败');
+    }
+  }
+
+  const fileTypeInfo = (type) => {
+    if (type === 'txt') return { label: 'TXT', color: 'bg-blue-500' };
+    if (type === 'pdf') return { label: 'PDF', color: 'bg-red-500' };
+    if (['doc', 'docx'].includes(type)) return { label: 'DOC', color: 'bg-blue-700' };
+    return { label: 'FILE', color: 'bg-gray-500' };
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 sm:p-8">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-2xl font-bold">Lore库</h2>
+        {chunkCount > 0 && (
+          <span className="text-xs text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400 px-3 py-1 rounded-full">
+            知识库已就绪 · {chunkCount} 个片段
+          </span>
+        )}
+      </div>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">管理本书的世界观、大纲、背景设定等 RAG 数据源</p>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2.5 text-sm">
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => !uploading && inputRef.current?.click()}
+        className={`rounded-2xl bg-white dark:bg-cardDark border-2 border-dashed p-10 text-center transition-all mb-8 shadow-sm ${
+          uploading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+        } ${
+          dragOver
+            ? 'border-main dark:border-darkMain bg-[#F5EFE9] dark:bg-[#3a2f2a]'
+            : 'border-gray-200 dark:border-gray-600 hover:border-main dark:hover:border-darkMain hover:shadow-md'
+        }`}
+      >
+        {uploading ? (
+          <>
+            <div className="inline-block w-10 h-10 border-3 border-main border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p className="text-base font-medium">正在构建知识库...</p>
+            <p className="text-xs text-gray-400 mt-1">向量化与人物画像提取中</p>
+          </>
+        ) : (
+          <>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#FFF7ED] dark:bg-[#3a2f2a] mb-4">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                <line x1="12" y1="11" x2="12" y2="17"/>
+                <polyline points="9 14 12 11 15 14"/>
+              </svg>
+            </div>
+            <p className="text-base font-medium mb-1.5">拖拽文件到此处，或点击上传</p>
+            <p className="text-xs text-gray-400">支持 TXT / DOCX 等格式</p>
+          </>
+        )}
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={handleSelect}
+          accept=".txt,.docx,.doc" />
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-3">已上传文件 ({files.length})</h3>
+        {files.length === 0 ? (
+          <div className="text-center py-10 text-gray-400 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+            <p className="text-4xl mb-2">📄</p>
+            <p className="text-sm">{chunkCount > 0 ? '知识库已构建，可继续上传补充' : '暂无文件，请上传设定资料'}</p>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {files.map(file => {
+              const info = fileTypeInfo(file.type);
+              return (
+                <div key={file.id} className="group flex items-center gap-3 rounded-xl bg-white dark:bg-cardDark p-4 shadow-sm hover:shadow-md transition-all border border-gray-100 dark:border-gray-700">
+                  <span className={`shrink-0 w-11 h-11 rounded-lg ${info.color} text-white flex items-center justify-center text-xs font-bold`}>{info.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{file.size_display || file.size + ' B'}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400 px-2.5 py-1 rounded-full">已解析</span>
+                  <button
+                    onClick={() => deleteFile(file.id)}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+                    aria-label="删除"
+                  >✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== 情感曲线板块 ====================
+function EmotionPanel({ bookTitle }) {
+  const [input, setInput] = useState('');
+  const [character, setCharacter] = useState('');
+  const [trajectories, setTrajectories] = useState([]);
+  const [trajDetail, setTrajDetail] = useState({});
+  const [selectedTraj, setSelectedTraj] = useState('');
+  const [customTrajName, setCustomTrajName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`emotion_plan_${bookTitle}`);
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        setResult(data.result);
+        setInput(data.input || '');
+        setCharacter(data.character || '');
+        setSelectedTraj(data.selectedTraj || '');
+        setCustomTrajName(data.customTrajName || '');
+      } catch (e) {}
+    }
+  }, [bookTitle]);
+
+  useEffect(() => {
+    API.getTrajectories().then(d => {
+      setTrajectories(d.keys || []);
+      setTrajDetail(d.detail || {});
+      if (d.keys && d.keys.length > 0) setSelectedTraj(d.keys[0]);
+    }).catch(e => setError(e.message));
+  }, []);
+
+  async function handleSubmit() {
+    if (!input.trim()) {
+      alert('请输入剧情需求或冲突点');
+      return;
+    }
+    if (!selectedTraj) {
+      alert('请选择情绪轨迹');
+      return;
+    }
+    let trajName = selectedTraj;
+    if (selectedTraj === '__custom__') {
+      if (!customTrajName.trim()) {
+        alert('请输入自定义轨迹名称');
+        return;
+      }
+      trajName = customTrajName.trim();
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await API.planEmotion(trajName, character, input);
+      setResult(res);
+      localStorage.setItem(`emotion_plan_${bookTitle}`, JSON.stringify({
+        result: res,
+        input,
+        character,
+        selectedTraj,
+        customTrajName
+      }));
+    } catch (e) {
+      setError(e.message || '规划失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const points = result ? [
+    { x: 50, y: 200 - result.start.value * 1.8 },
+    { x: 200, y: 200 - result.twist.value * 1.8 },
+    { x: 350, y: 200 - result.climax.value * 1.8 },
+    { x: 500, y: 200 - result.end.value * 1.8 }
+  ] : [];
+
+  const pathD = points.length
+    ? `M ${points[0].x} ${points[0].y} Q ${points[0].x + 75} ${points[0].y}, ${points[1].x} ${points[1].y} T ${points[2].x} ${points[2].y} T ${points[3].x} ${points[3].y}`
+    : '';
+
+  return (
+    <div className="max-w-3xl mx-auto p-6">
+      <h2 className="text-2xl font-bold mb-2">情感曲线</h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">通过情绪轨迹模板规划剧情的情感波形</p>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2.5 text-sm">
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div className="rounded-2xl bg-white dark:bg-cardDark p-5 shadow-sm mb-6">
+        <div className="grid sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block mb-2 text-sm font-medium">情绪轨迹</label>
+            <select
+              value={selectedTraj}
+              onChange={e => setSelectedTraj(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-2.5 text-sm outline-none transition focus:border-main dark:focus:border-darkMain"
+            >
+              {trajectories.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="__custom__">✏️ 自定义...</option>
+            </select>
+            {selectedTraj === '__custom__' && (
+              <input
+                value={customTrajName}
+                onChange={e => setCustomTrajName(e.target.value)}
+                placeholder="输入自定义轨迹名称，如：先抑后扬、跌宕起伏..."
+                className="mt-2 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-2 text-sm outline-none transition focus:border-main dark:focus:border-darkMain"
+              />
+            )}
+            {trajDetail[selectedTraj]?.说明 && selectedTraj !== '__custom__' && (
+              <p className="text-xs text-gray-400 mt-1.5">{trajDetail[selectedTraj].说明}</p>
+            )}
+          </div>
+          <div>
+            <label className="block mb-2 text-sm font-medium">角色（可选）</label>
+            <input
+              value={character}
+              onChange={e => setCharacter(e.target.value)}
+              placeholder="如：林黛玉、贾宝玉"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-2.5 text-sm outline-none transition focus:border-main dark:focus:border-darkMain"
+            />
+          </div>
+        </div>
+        <label className="block mb-2 text-sm font-medium">本章 / 本卷剧情需求</label>
+        <textarea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="输入剧情需求或冲突点，例如：两人因误会产生隔阂，最终互相理解..."
+          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-3 text-sm outline-none transition focus:border-main dark:focus:border-darkMain resize-none"
+          rows="4"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="mt-3 rounded-lg bg-main hover:bg-[#684030] dark:bg-darkMain dark:hover:bg-[#e2977c] px-6 py-2.5 text-white text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          {loading ? '规划中...' : '生成情感规划'}
+        </button>
+      </div>
+
+      {loading && (
+        <div className="text-center py-16">
+          <div className="inline-block w-8 h-8 border-3 border-main border-t-transparent rounded-full animate-spin mb-3"></div>
+          <p className="text-sm text-gray-400">正在生成情感规划...</p>
+        </div>
+      )}
+
+      {result && !loading && (
+        <div className="space-y-4">
+          <div className="rounded-2xl bg-white dark:bg-cardDark p-6 shadow-sm">
+            <h3 className="text-sm font-semibold mb-4">情感波形 · {result.trajectory}</h3>
+            <svg viewBox="0 0 550 230" className="w-full">
+              {[0, 50, 100, 150, 200].map(y => (
+                <line key={y} x1="30" y1={y + 10} x2="540" y2={y + 10} stroke="currentColor" strokeWidth="0.5" className="text-gray-200 dark:text-gray-700" />
+              ))}
+              <path d={pathD} fill="none" stroke="#7A4B3A" strokeWidth="2.5" strokeLinecap="round" />
+              <path d={`${pathD} L 500 210 L 50 210 Z`} fill="#7A4B3A" opacity="0.08" />
+              {points.map((p, i) => (
+                <g key={i}>
+                  <circle cx={p.x} cy={p.y} r="5" fill="#7A4B3A" />
+                  <text x={p.x} y={p.y - 12} textAnchor="middle" className="text-[10px] fill-gray-500">
+                    {[result.start, result.twist, result.climax, result.end][i].label}
+                  </text>
+                </g>
+              ))}
+              <text x="15" y="15" className="text-[9px] fill-gray-400">高</text>
+              <text x="15" y="210" className="text-[9px] fill-gray-400">低</text>
+            </svg>
+            {result.writing_focus && (
+              <p className="text-xs text-gray-400 mt-3">写作重心：{result.writing_focus}</p>
+            )}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            {[result.start, result.twist, result.climax, result.end].map((node, i) => (
+              <div key={i} className="rounded-xl bg-white dark:bg-cardDark p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-main dark:text-darkMain">{node.label}</span>
+                  <span className="text-xs text-gray-400">情感值 {node.value}</span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{node.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!result && !loading && (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-5xl mb-3">📈</p>
+          <p className="text-sm">选择情绪轨迹并提交剧情需求后，将生成情感规划</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 时间线板块 ====================
+const PHASE_COLORS = ['bg-blue-400', 'bg-green-400', 'bg-purple-400', 'bg-orange-400', 'bg-red-400', 'bg-pink-400'];
+
+function TimelinePanel() {
+  const [characters, setCharacters] = useState({});
+  const [charNames, setCharNames] = useState([]);
+  const [selectedChar, setSelectedChar] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    API.getCharacters().then(d => {
+      const names = Object.keys(d.characters || {});
+      setCharacters(d.characters || {});
+      setCharNames(names);
+      if (names.length > 0) setSelectedChar(names[0]);
+      setLoading(false);
+    }).catch(e => {
+      setError(e.message);
+      setLoading(false);
+    });
+  }, []);
+
+  const charData = characters[selectedChar];
+  const phases = (charData?.timeline || []).slice().sort((a, b) => (a.时序 || 0) - (b.时序 || 0));
+
+  return (
+    <div className="max-w-3xl mx-auto p-6">
+      <h2 className="text-2xl font-bold mb-2">时间线</h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">管理单角色的人格演变与事件时间线（数据来自人物画像提取）</p>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-2.5 text-sm">
+          ⚠️ {error}
+        </div>
+      )}
+
+      {charNames.length > 0 && (
+        <div className="rounded-2xl bg-white dark:bg-cardDark p-4 shadow-sm mb-6">
+          <label className="block mb-2 text-sm font-medium">选择角色</label>
+          <select
+            value={selectedChar}
+            onChange={e => setSelectedChar(e.target.value)}
+            className="w-full sm:w-64 rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-2.5 text-sm outline-none transition focus:border-main dark:focus:border-darkMain"
+          >
+            {charNames.map(name => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-16">
+          <div className="inline-block w-8 h-8 border-3 border-main border-t-transparent rounded-full animate-spin mb-3"></div>
+          <p className="text-sm text-gray-400">加载时间线...</p>
+        </div>
+      ) : phases.length > 0 ? (
+        <div className="relative pl-8">
+          <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-gray-200 dark:bg-gray-700"></div>
+
+          {phases.map((phase, i) => (
+            <div key={phase.id || i} className="relative mb-6 last:mb-0">
+              <div className={`absolute -left-[22px] top-1 w-4 h-4 rounded-full ${PHASE_COLORS[i % PHASE_COLORS.length]} ring-4 ring-pageBg dark:ring-darkBg`}></div>
+
+              <div className="rounded-xl bg-white dark:bg-cardDark p-4 shadow-sm hover:shadow-md transition-all">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-medium text-main dark:text-darkMain bg-[#F5EFE9] dark:bg-[#3a2f2a] px-2 py-0.5 rounded-full">
+                    阶段 {phase.时序 || i + 1}
+                  </span>
+                  <span className="text-sm font-semibold">{phase.名称}</span>
+                </div>
+
+                {phase.关键事件 && phase.关键事件.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-xs text-gray-400 mb-1">📌 关键事件</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {phase.关键事件.map((ev, j) => (
+                        <span key={j} className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded">{ev}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {phase.性格 && (
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1.5">
+                    <span className="text-xs text-gray-400">🎭 性格：</span>{phase.性格}
+                  </p>
+                )}
+                {phase.行为边界 && (
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1.5">
+                    <span className="text-xs text-gray-400">⚖️ 行为边界：</span>{phase.行为边界}
+                  </p>
+                )}
+
+                {phase.关系 && (Array.isArray(phase.关系) ? phase.关系.length > 0 : Object.keys(phase.关系).length > 0) && (
+                  <div className="mb-2">
+                    <p className="text-xs text-gray-400 mb-1">🔗 关系</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.isArray(phase.关系)
+                        ? phase.关系.map((r, j) => (
+                            <span key={j} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
+                              {r}
+                            </span>
+                          ))
+                        : Object.entries(phase.关系).map(([k, v]) => (
+                            <span key={k} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
+                              {k}：{v}
+                            </span>
+                          ))
+                      }
+                    </div>
+                  </div>
+                )}
+
+                {phase.禁止行为 && phase.禁止行为.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">🚫 禁止行为</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {phase.禁止行为.map((ev, j) => (
+                        <span key={j} className="text-xs bg-red-50 dark:bg-red-900/20 text-red-500 px-2 py-0.5 rounded">{ev}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : !error ? (
+        <div className="text-center py-16 px-4">
+          <p className="text-5xl mb-3">🗓️</p>
+          <p className="text-base font-medium text-gray-500 dark:text-gray-400 mb-2">暂无角色时间线数据</p>
+          <p className="text-sm text-gray-400 mb-1">时间线会从你上传的设定文件中自动提取角色</p>
+          <p className="text-xs text-gray-400 mt-3">
+            👉 请先到 <span className="text-main dark:text-darkMain font-medium">Lore库</span> 上传人物设定文档
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ==================== 生成正文板块 ====================
+function GeneratePanel() {
+  const [query, setQuery] = useState('');
+  const [answer, setAnswer] = useState('');  // writer生成的小说正文
+  const [reviewText, setReviewText] = useState('');  // 审核结果
+  const [generating, setGenerating] = useState(false);
+  const [mode, setMode] = useState('create');
+  const [error, setError] = useState('');
+  const [revisionInput, setRevisionInput] = useState('');
+  const [revising, setRevising] = useState(false);
+
+  async function handleGenerate() {
+    if (!query.trim()) {
+      alert('请输入创作需求');
+      return;
+    }
+    setGenerating(true);
+    setError('');
+    setAnswer('');
+    setReviewText('');
+    setRevisionInput('');
+    try {
+      const res = await API.generate(query, mode);
+      setAnswer(res.answer || '');
+      setReviewText(res.review || '（无审核结果）');
+    } catch (e) {
+      setError(e.message || '生成失败');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleRevise() {
+    if (!revisionInput.trim()) {
+      alert('请输入修改意见');
+      return;
+    }
+    setRevising(true);
+    setError('');
+    try {
+      let res;
+      try {
+        // 优先使用 Editor Agent 接口
+        res = await API.revise(answer, revisionInput, query);
+      } catch (reviseErr) {
+        console.warn('[revise] 接口不可用，回退到 generate:', reviseErr.message);
+        // 回退：用 generate 接口，把修改意见和原文组合成新请求
+        const combinedQuery = `请根据以下修改意见，修改这段小说正文。\n\n修改意见：${revisionInput}\n\n原文：\n${answer}\n\n请输出修改后的完整正文。`;
+        res = await API.generate(combinedQuery, mode);
+      }
+      if (res.answer) {
+        setAnswer(res.answer);
+        setReviewText(res.review || '');
+      } else {
+        setError('返回内容为空');
+      }
+    } catch (e) {
+      setError(e.message || '修改失败');
+      alert('修改失败: ' + (e.message || '未知错误'));
+    } finally {
+      setRevising(false);
+    }
+  }
+
+  return (
+    <div className="h-full flex flex-col p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-2xl font-bold">生成正文</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">结合 RAG 设定、情感曲线与时间线，AI 协同写作</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={mode} onChange={e=>setMode(e.target.value)}
+            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-2 text-sm outline-none focus:border-main">
+            <option value="create">创作模式（多Agent）</option>
+            <option value="qa">问答模式</option>
+          </select>
+          <button onClick={handleGenerate} disabled={generating}
+            className="btn-glow rounded-lg px-5 py-2.5 text-white text-sm font-medium disabled:opacity-50 disabled:transform-none disabled:shadow-none">
+            {generating ? '⏳ 生成中...' : '🤖 基于RAG生成'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="mb-3 rounded-lg bg-red-50 text-red-600 px-4 py-2.5 text-sm">⚠️ {error}</div>}
+
+      <div className="rounded-2xl bg-white dark:bg-cardDark p-4 shadow-sm mb-3">
+        <label className="block mb-2 text-sm font-medium">创作需求</label>
+        <textarea value={query} onChange={e=>setQuery(e.target.value)}
+          placeholder="例如：写一段林黛玉和贾宝玉因为误会产生矛盾后的剧情。"
+          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-3 text-sm outline-none focus:border-main resize-none"
+          rows="3" />
+      </div>
+
+      {/* 白色区域：显示 Writer 生成的小说正文 */}
+      <div className="rounded-2xl bg-white dark:bg-cardDark shadow-sm mb-3">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 dark:border-gray-700">
+          <span className="text-sm font-semibold">📖 AI 创作正文</span>
+          {answer && <span className="text-xs text-gray-400">{answer.length} 字</span>}
+        </div>
+        {generating || revising ? (
+          <div className="w-full p-12 flex items-center justify-center" style={{minHeight:'300px'}}>
+            <div className="text-center">
+              <div className="inline-block w-8 h-8 border-3 border-main border-t-transparent rounded-full animate-spin mb-3"></div>
+              <p className="text-sm text-gray-400">{generating ? 'AI 正在创作中，请稍候...' : 'AI 正在修改中，请稍候...'}</p>
+            </div>
+          </div>
+        ) : answer ? (
+          <div className="w-full p-6 text-base leading-relaxed whitespace-pre-wrap overflow-y-auto scrollbar-thin" style={{minHeight:'300px', maxHeight:'600px',color:'#1C1C1C'}}>
+            {answer}
+          </div>
+        ) : (
+          <div className="w-full p-6 text-sm text-gray-400 text-center flex items-center justify-center" style={{minHeight:'300px'}}>
+            点击「🤖 基于RAG生成」开始创作...
+          </div>
+        )}
+      </div>
+
+      {/* 修改意见 (仅在有正文时显示) */}
+      {answer && !generating && (
+        <div className="rounded-2xl bg-white dark:bg-cardDark shadow-sm mb-3 p-5">
+          <span className="text-sm font-semibold">修改意见</span>
+          <textarea value={revisionInput} onChange={e=>setRevisionInput(e.target.value)}
+            placeholder="输入修改意见，如：把对话写得更含蓄、增加环境描写、调整叙事节奏..."
+            className="w-full mt-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-pageBg dark:bg-darkBg px-4 py-3 text-sm outline-none focus:border-main resize-none"
+            rows="5" />
+          <div className="flex justify-end mt-3">
+            <button onClick={handleRevise} disabled={revising || !revisionInput.trim()}
+              className="btn-glow rounded-lg px-5 py-2 text-white text-sm font-medium disabled:opacity-50 disabled:transform-none disabled:shadow-none">
+              {revising ? '⏳ 修改中...' : '提交'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 审核结果区域 */}
+      {!generating && (
+        <div className="rounded-2xl bg-white dark:bg-cardDark shadow-sm">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 dark:border-gray-700">
+            <span className="text-sm font-semibold">🔍 Canon 一致性审核</span>
+            {reviewText && <span className="text-xs text-gray-400">{reviewText.length} 字</span>}
+          </div>
+          <div className="w-full p-5 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+            {reviewText ? reviewText : '等待生成...'}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1"></div>
+    </div>
+  );
+}
+
+// ==================== 主工作台组件 ====================
+function Workspace() {
+  const [dark, setDark] = useState(localStorage.getItem('dark') === '1');
+  const [activePanel, setActivePanel] = useState('lore');
+  const [connected, setConnected] = useState(true);
+  const [bookTitle, setBookTitle] = useState('未命名作品');
+
+  useEffect(() => {
+    if (localStorage.getItem('loggedIn') !== '1') {
+      location.href = 'login.html';
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const title = params.get('book');
+    if (title) setBookTitle(decodeURIComponent(title));
+    API.health().then(() => setConnected(true)).catch(() => setConnected(false));
+  }, []);
+
+  useEffect(() => {
+    if (dark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    localStorage.setItem('dark', dark ? '1' : '0');
+  }, [dark]);
+
+  function renderPanel() {
+    switch (activePanel) {
+      case 'lore': return <LorePanel />;
+      case 'emotion': return <EmotionPanel bookTitle={bookTitle} />;
+      case 'timeline': return <TimelinePanel />;
+      case 'generate': return <GeneratePanel />;
+      default: return null;
+    }
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-pageBg dark:bg-darkBg text-[#1C1C1C] dark:text-white overflow-hidden">
+      <header className="header-gradient shrink-0 h-14 flex items-center justify-between px-5 border-b border-gray-200 dark:border-gray-700 z-10">
+        <div className="flex items-center gap-1.5 text-sm overflow-hidden">
+          <a href="index.html" className="text-gray-400 hover:text-main dark:hover:text-darkMain transition-colors shrink-0">CanonWriter</a>
+          <span className="text-gray-300 dark:text-gray-600">/</span>
+          <a href="dashboard.html" className="text-gray-400 hover:text-main dark:hover:text-darkMain transition-colors shrink-0">我的书架</a>
+          <span className="text-gray-300 dark:text-gray-600">/</span>
+          <span className="text-gray-500 dark:text-gray-400 truncate max-w-[120px] sm:max-w-xs">《{bookTitle}》</span>
+          <span className="text-gray-300 dark:text-gray-600">/</span>
+          <span className="font-medium text-[#1C1C1C] dark:text-white shrink-0">{MENU_ITEMS.find(m => m.id === activePanel)?.label}</span>
+        </div>
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+          <div className="hidden sm:flex items-center gap-2 text-xs">
+            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}></span>
+            <span className={connected ? 'text-green-500' : 'text-red-500'}>
+              {connected ? '后端已连接' : '后端断开'}
+            </span>
+          </div>
+          <button className="relative text-lg hover:opacity-70 transition-opacity" aria-label="通知">
+            🔔
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full"></span>
+          </button>
+          <button onClick={() => setDark(!dark)} className="text-lg hover:opacity-70 transition-opacity" aria-label="切换主题">
+            {dark ? '☀️' : '🌙'}
+          </button>
+          <div className="w-9 h-9 rounded-full bg-main dark:bg-darkMain text-white flex items-center justify-center text-sm font-medium">
+            墨
+          </div>
+        </div>
+      </header>
+
+      <div className="flex-1 flex overflow-hidden">
+        <nav className="shrink-0 w-20 sm:w-56 bg-white dark:bg-cardDark border-r border-gray-200 dark:border-gray-700 flex flex-col py-4 gap-1">
+          {MENU_ITEMS.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActivePanel(item.id)}
+              className={`nav-item ${activePanel === item.id ? 'active' : ''} flex items-center gap-3 mx-2 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activePanel === item.id
+                  ? 'bg-[#F5EFE9] dark:bg-[#3a2f2a] text-main dark:text-darkMain'
+                  : 'text-gray-500 hover:text-main dark:hover:text-darkMain hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              <span className="text-xl shrink-0">{item.icon}</span>
+              <span className="hidden sm:inline">{item.label}</span>
+            </button>
+          ))}
+
+          <div className="flex-1"></div>
+
+          <button
+            onClick={() => { localStorage.removeItem('loggedIn'); location.href = 'index.html'; }}
+            className="flex items-center gap-3 mx-2 px-3 sm:px-4 py-2.5 rounded-lg text-sm text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <span className="text-xl shrink-0">🚪</span>
+            <span className="hidden sm:inline">退出登录</span>
+          </button>
+        </nav>
+
+        <main className="page-bg flex-1 overflow-y-auto scrollbar-thin">
+          {renderPanel()}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Workspace/>)
+</script>
+</body>
+</html>
