@@ -1,0 +1,40 @@
+# Python虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 前端相关
+node_modules/
+dist/
+build/
+.vite/
+
+# 密钥环境文件 ⚠️只屏蔽真实.env，保留.env.example
+.env
+.env.local
+
+# 本地运行产生的业务数据
+user.faiss
+user_*.json
+
+# 模型权重缓存
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# 日志
+*.log
+logs/
+
+# IDE配置
+.vscode/
+.idea/
+
+# 系统垃圾文件
+.DS_Store
+Thumbs.db
