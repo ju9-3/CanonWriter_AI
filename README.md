@@ -1,7 +1,7 @@
 # CanonWriter AI小说创作工具
-AI小说生成项目，Python后端 + 静态HTML前端
-
+同人文/小说/故事 AI辅佐项目，可以通过上传已有的设定文件，利用该demo去检索对应信息、输入需求生成文章
 ## 项目结构
+Python后端 + 静态HTML前端
 - backend：Python后端服务
 - frontend：前端页面
 
